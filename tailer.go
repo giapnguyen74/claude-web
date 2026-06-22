@@ -70,6 +70,7 @@ func (t *Tailer) Start() {
 			case <-ticker.C:
 				t.poll()
 			case <-t.done:
+				t.poll() // final flush so the closing session_end isn't dropped
 				return
 			}
 		}

@@ -180,8 +180,13 @@ func (pm *ProcManager) spawnActive(proj Project, resolvedArgs []string) (*Active
 			fmt.Fprintf(os.Stderr, "[procmgr] Claude for %q exited successfully.\n", proj.Name)
 		}
 
-		// Broadcast status change to connected clients
+		// Broadcast status change to connected clients, then remove the dead
+		// session from the active set so the project can be started again. The
+		// short grace period lets the tailer flush the final events (e.g. the
+		// closing session_end) that may still be in-flight from stdout.
 		ap.Hub.broadcast(marshalProjectStatus(ap))
+		time.Sleep(200 * time.Millisecond)
+		pm.retire(proj.ID, ap)
 	}()
 
 	// Start event tailer and broadcasting
@@ -242,6 +247,20 @@ func (pm *ProcManager) Stop(projectID string) error {
 	ap.Hub.broadcast(marshalProjectStatus(ap))
 
 	return nil
+}
+
+// retire removes an exited session from the active set and stops its background
+// goroutines, returning the project to idle so it can be started again. Safe to
+// call multiple times and concurrently with Stop (delete is guarded by identity,
+// shutdown and Tailer.Stop are idempotent).
+func (pm *ProcManager) retire(projectID string, ap *ActiveProject) {
+	pm.mu.Lock()
+	if pm.active[projectID] == ap {
+		delete(pm.active, projectID)
+	}
+	pm.mu.Unlock()
+	ap.shutdown()
+	ap.Tailer.Stop()
 }
 
 // GetActive returns the ActiveProject for a given project ID, or nil.
