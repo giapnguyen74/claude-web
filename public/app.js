@@ -460,11 +460,20 @@ let streamingText     = '';    // accumulated raw text
 
 // ── Status ────────────────────────────────────────────────────────────────
 function setStatus(status, sessionId) {
+  const prev = sessionStatus;
   sessionStatus = status;
   const labels = { starting: '● starting', running: '● running', stopped: '○ stopped', idle: '○ idle' };
   statusBadge.textContent = labels[status] || status;
   statusBadge.className = status;
   sendBtn.disabled = (status !== 'running');
+
+  // Mark the real end of a session (process exited), not per-turn completion.
+  if (status === 'stopped' && (prev === 'running' || prev === 'starting') && !isReplaying) {
+    const note = document.createElement('div');
+    note.className = 'notice';
+    note.textContent = 'session ended';
+    appendRow(note);
+  }
   // Show/hide start/stop buttons based on status
   const startBtn = document.getElementById('start-btn');
   const stopBtn = document.getElementById('stop-btn');
@@ -725,7 +734,11 @@ function handleClaudeEvent(ev) {
         note.className = 'notice';
         note.textContent = `session started · ${cwd}`;
         appendRow(note);
+      } else if (ev.subtype === 'turn_end') {
+        // End of one turn — the session stays alive for the next message.
+        stopWorking();
       } else if (ev.subtype === 'session_end') {
+        // True session end (kept for older history logs that used this marker).
         stopWorking();
         const note = document.createElement('div');
         note.className = 'notice';

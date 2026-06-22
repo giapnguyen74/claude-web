@@ -481,14 +481,18 @@ func translateClaudeEvent(line []byte) ([]byte, error) {
 			return json.Marshal(ev)
 		}
 	case "result":
-		// Rewrite to session_end
-		type sessionEndEvent struct {
+		// A `result` marks the end of a single TURN, not the session. In
+		// stream-json mode the claude process stays alive on stdin for the next
+		// message, so we emit a turn_end marker and leave the session running.
+		// The session is considered stopped only when the process actually exits
+		// (handled by the monitor goroutine) or on /exit.
+		type turnEndEvent struct {
 			Type    string `json:"type"`
 			Subtype string `json:"subtype"`
 		}
-		ev := sessionEndEvent{
+		ev := turnEndEvent{
 			Type:    "system",
-			Subtype: "session_end",
+			Subtype: "turn_end",
 		}
 		return json.Marshal(ev)
 	}
