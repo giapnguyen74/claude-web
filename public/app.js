@@ -850,6 +850,7 @@ function connect() {
     if (msg.type === 'replay_end') {
       isReplaying = false;
       scrollToBottom();
+      maybeAutoFillHistory();
       return;
     }
 
@@ -940,11 +941,23 @@ async function loadOlderHistory() {
     historyHasMore = !!data.hasMore;
 
     c.scrollTop = c.scrollHeight - prevHeight + prevTop;
+    // If it still doesn't scroll, keep filling (runs after this call settles).
+    setTimeout(maybeAutoFillHistory, 0);
   } catch (err) {
     console.error('Failed to load history', err);
     setHistoryLoader(false);
   } finally {
     historyLoading = false;
+  }
+}
+
+// If the current session is short enough that nothing scrolls but older
+// history exists, pull a page so it's reachable (and keep filling until the
+// view scrolls or history is exhausted).
+function maybeAutoFillHistory() {
+  const c = document.getElementById('conversation');
+  if (historyHasMore && !historyLoading && c.scrollHeight <= c.clientHeight + 4) {
+    loadOlderHistory();
   }
 }
 

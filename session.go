@@ -48,6 +48,42 @@ func eventsPathForProject(projectDir string) (string, error) {
 	return filepath.Join(sd, "events.jsonl"), nil
 }
 
+// historyPathForProject returns the append-only archive of prior sessions'
+// events for a project. The live events.jsonl is reset each Start; its previous
+// contents are appended here so past conversations remain browsable.
+func historyPathForProject(projectDir string) (string, error) {
+	sd, err := sessionDirForProject(projectDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(sd, "history.jsonl"), nil
+}
+
+// archiveEvents appends the current events file to the history archive before
+// events.jsonl is reset. No-op if the events file is missing or empty.
+func archiveEvents(eventsPath, historyPath string) error {
+	data, err := os.ReadFile(eventsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	if data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
+	f, err := os.OpenFile(historyPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(data)
+	return err
+}
+
 func ensureSessionFiles(projectDir string) (sessionFiles, error) {
 	sd, err := sessionDirForProject(projectDir)
 	if err != nil {

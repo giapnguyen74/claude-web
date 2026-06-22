@@ -1060,7 +1060,13 @@ func (s *Server) handleProjectEventsHistory(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	all := readJSONLines(evPath)
+	histPath, err := historyPathForProject(proj.Path)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Combined timeline: archived prior sessions, then the current session.
+	all := append(readJSONLines(histPath), readJSONLines(evPath)...)
 	total := len(all)
 
 	limit := replayLimit
@@ -1136,23 +1142,28 @@ func (s *Server) handleProjectWS(w http.ResponseWriter, r *http.Request, project
 		defer ap.Hub.unsubscribe(liveCh)
 	}
 
-	// 2. Replay a bounded tail of history. Older events are loaded on demand via
-	//    GET /api/projects/{id}/events/history as the user scrolls up.
+	// 2. Replay a bounded tail of the CURRENT session only, so the live channel
+	//    never replays a stale session_end from a prior run. firstIndex is the
+	//    position in the combined (archive + current) timeline, so scroll-up
+	//    flows seamlessly into history via GET .../events/history.
 	evPath, _ := eventsPathForProject(proj.Path)
-	all := readJSONLines(evPath)
-	total := len(all)
+	histPath, _ := historyPathForProject(proj.Path)
+	cur := readJSONLines(evPath)
+	archivedCount := len(readJSONLines(histPath))
+	total := len(cur)
 	start := total - replayLimit
 	if start < 0 {
 		start = 0
 	}
+	firstIndex := archivedCount + start
 	if !write(mustMarshal(map[string]any{
 		"type":       "replay_start",
-		"firstIndex": start,
-		"hasMore":    start > 0,
+		"firstIndex": firstIndex,
+		"hasMore":    firstIndex > 0,
 	})) {
 		return
 	}
-	for _, ev := range all[start:] {
+	for _, ev := range cur[start:] {
 		if !write(marshalClaudeEvent(ev)) {
 			return
 		}

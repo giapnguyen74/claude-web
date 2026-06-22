@@ -111,10 +111,18 @@ func (pm *ProcManager) spawnActive(proj Project, resolvedArgs []string) (*Active
 		return nil, fmt.Errorf("session files: %w", err)
 	}
 
-	// Keep events.jsonl append-only across sessions so the browser can scroll
-	// back through prior conversations. Each session is self-delimited by its
-	// session_start/session_end events, and the live tailer starts at EOF so it
-	// only streams new lines. The input log is reset (it is not replayed).
+	// Archive the previous session's events, then reset events.jsonl so the live
+	// channel always starts clean — a stale session_end (the translated `result`
+	// event) must never leak into the new channel and end it prematurely. Prior
+	// conversations stay browsable via the history API, which reads the archive.
+	if histPath, err := historyPathForProject(proj.Path); err == nil {
+		if err := archiveEvents(sf.eventsPath, histPath); err != nil {
+			fmt.Fprintf(os.Stderr, "[procmgr] archive events warning: %v\n", err)
+		}
+	}
+	if err := os.WriteFile(sf.eventsPath, nil, 0o600); err != nil {
+		return nil, fmt.Errorf("init events file: %w", err)
+	}
 	if err := os.WriteFile(sf.inputPath, nil, 0o600); err != nil {
 		return nil, fmt.Errorf("init input file: %w", err)
 	}
