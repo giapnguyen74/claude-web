@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>claude-code-web · Dashboard</title>
+  <meta name="description" content="Multi-project workspace manager for Claude Code">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:           #1a1b26;
+      --surface:      #16161e;
+      --surface2:     #1e2030;
+      --surface3:     #24283b;
+      --border:       #2a2b3d;
+      --border-hover: #3d3f58;
+      --text:         #c0caf5;
+      --text-muted:   #565f89;
+      --text-dim:     #414868;
+      --accent:       #7aa2f7;
+      --accent-dim:   rgba(122,162,247,0.12);
+      --green:        #9ece6a;
+      --green-dim:    rgba(158,206,106,0.12);
+      --red:          #f7768e;
+      --red-dim:      rgba(247,118,142,0.12);
+      --yellow:       #e0af68;
+      --yellow-dim:   rgba(224,175,104,0.12);
+      --orange:       #ff9e64;
+      --purple:       #bb9af7;
+      --font-sans:    'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+
+    .header-logo {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-logo-icon {
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(135deg, var(--accent), var(--purple));
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #1a1b26;
+      font-weight: 700;
+    }
+
+    .header-workspace {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 4px 10px;
+      background: var(--surface2);
+      border-radius: 4px;
+      max-width: 400px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .header-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-stat {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .header-stat strong {
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    /* ── Main content ───────────────────────────────────────────────── */
+    .main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 32px 80px;
+    }
+
+    /* ── Section header ─────────────────────────────────────────────── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+    }
+
+    /* ── Project grid ───────────────────────────────────────────────── */
+    .project-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+
+    .project-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 0.2s ease;
+      position: relative;
+      cursor: default;
+    }
+    .project-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .project-card-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .project-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--accent-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .project-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .project-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .project-path {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .project-status {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 12px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+    }
+    .project-status.idle     { background: var(--surface2); color: var(--text-muted); }
+    .project-status.starting { background: var(--yellow-dim); color: var(--yellow); }
+    .project-status.running  { background: var(--green-dim); color: var(--green); }
+    .project-status.stopped  { background: var(--red-dim); color: var(--red); }
+
+    .project-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .btn {
+      padding: 7px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: var(--font-sans);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+    .btn:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #1a1b26;
+    }
+    .btn-primary:hover { opacity: 0.85; border-color: var(--accent); color: #1a1b26; background: var(--accent); }
+
+    .btn-danger {
+      border-color: transparent;
+      background: transparent;
+      color: var(--text-muted);
+    }
+    .btn-danger:hover { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+
+    .btn-start { border-color: var(--green); color: var(--green); background: var(--green-dim); }
+    .btn-start:hover { opacity: 0.85; }
+
+    .btn-stop { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+    .btn-stop:hover { opacity: 0.85; }
+
+    /* ── Empty state ────────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    .empty-state-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .empty-state-text {
+      font-size: 13px;
+      max-width: 400px;
+      margin: 0 auto;
+    }
+
+    /* ── Add project panel ──────────────────────────────────────────── */
+    .add-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .add-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+    .add-tab {
+      flex: 1;
+      padding: 12px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+      font-family: var(--font-sans);
+    }
+    .add-tab:hover { color: var(--text); background: rgba(255,255,255,0.02); }
+    .add-tab.active {
+      color: var(--accent);
+      box-shadow: inset 0 -2px 0 var(--accent);
+      background: rgba(122,162,247,0.04);
+    }
+
+    .add-body {
+      padding: 20px;
+    }
+
+    .add-form {
+      display: none;
+      gap: 12px;
+      flex-direction: column;
+    }
+    .add-form.active { display: flex; }
+
+    .form-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .form-input:focus { border-color: var(--accent); }
+    .form-input::placeholder { color: var(--text-dim); }
+
+    .form-hint {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .form-error {
+      font-size: 12px;
+      color: var(--red);
+      display: none;
+    }
+    .form-error.show { display: block; }
+
+    /* ── Loading state ──────────────────────────────────────────────── */
+    .loading-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast notification ─────────────────────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--text);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      z-index: 1000;
+      animation: slideUp 0.3s ease-out;
+      display: none;
+    }
+    .toast.show { display: block; }
+    .toast.error { border-color: var(--red); color: var(--red); }
+    .toast.success { border-color: var(--green); color: var(--green); }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Config modal ───────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal-overlay.show { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      width: 480px;
+      max-width: 90vw;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--accent);
+    }
+
+    .modal-field {
+      margin-bottom: 14px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+
+    /* ── Responsive ─────────────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .header { padding: 12px 16px; gap: 10px; }
+      .main { padding: 16px 16px 60px; }
+      .project-grid { grid-template-columns: 1fr; gap: 12px; }
+      .project-card { padding: 16px; }
+      .add-tabs { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">
+    <div class="header-logo-icon">C</div>
+    <span>claude-code-web</span>
+  </div>
+  <div class="header-right">
+    <div class="header-stat"><strong id="active-count">0</strong> active</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="section-header">
+    <h1 class="section-title">Projects</h1>
+    <div>
+      <button class="btn" onclick="openGlobalConfigModal()" style="display:inline-flex;margin-right:8px;">⚙ Global Settings</button>
+      <button class="btn btn-primary" onclick="openAddModal()" style="display:inline-flex;">+ Add Project</button>
+    </div>
+  </div>
+
+  <div id="project-grid" class="project-grid">
+    <!-- populated by JS -->
+  </div>
+
+  <div id="empty-state" class="empty-state" style="display:none">
+    <div class="empty-state-icon">📁</div>
+    <div class="empty-state-title">No projects yet</div>
+    <div class="empty-state-text">Add a folder from your workspace, create a new repository, or clone one from the internet.</div>
+  </div>
+
+<!-- Add Project Modal -->
+<div class="modal-overlay" id="add-modal">
+  <div class="modal" style="padding: 0; max-width: 500px; width: 100%; border-radius: 12px; overflow: hidden;">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border);">
+      <h2 class="modal-title" style="margin: 0; font-size: 14px;">Add Project</h2>
+      <button class="btn btn-danger" onclick="closeAddModal()" style="padding: 4px 8px;">✕</button>
+    </div>
+    <div class="add-tabs">
+      <button class="add-tab active" data-tab="folder" onclick="switchTab('folder')">📂 Existing Folder</button>
+      <button class="add-tab" data-tab="create" onclick="switchTab('create')">✨ New Repo</button>
+      <button class="add-tab" data-tab="clone" onclick="switchTab('clone')">🔗 Git Clone</button>
+    </div>
+    <div class="add-body">
+
+      <div class="add-form active" id="form-folder">
+        <div>
+          <div class="form-label">Folder path (relative to workspace)</div>
+          <input class="form-input" id="input-folder-path" list="workspace-folders" placeholder="e.g. my-project">
+          <datalist id="workspace-folders"></datalist>
+          <div class="form-hint">Must be inside the workspace directory</div>
+        </div>
+        <div class="form-error" id="error-folder"></div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="btn-add-folder" onclick="addFolder()">Add Folder</button>
+        </div>
+      </div>
+
+      <div class="add-form" id="form-create">
+        <div>
+          <div class="form-label">Repository name</div>
+          <input class="form-input" id="input-repo-name" placeholder="e.g. my-new-project">
+          <div class="form-hint">A new directory with git init will be created in the workspace</div>
+        </div>
+        <div class="form-error" id="error-create"></div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="btn-create-repo" onclick="createRepo()">Create Repo</button>
+        </div>
+      </div>
+
+      <div class="add-form" id="form-clone">
+        <div>
+          <div class="form-label">Git URL</div>
+          <input class="form-input" id="input-clone-url" placeholder="https://github.com/user/repo.git or git@github.com:user/repo.git">
+        </div>
+        <div>
+          <div class="form-label">Name (optional)</div>
+          <input class="form-input" id="input-clone-name" placeholder="auto-detected from URL">
+        </div>
+        <div class="form-error" id="error-clone"></div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="btn-clone" onclick="cloneRepo()">Clone</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Global Config Modal -->
+<div class="modal-overlay" id="global-config-modal">
+  <div class="modal">
+    <div class="modal-title">⚙ Global Configuration</div>
+    <div class="modal-field">
+      <div class="form-label">Global Claude Args (one per line)</div>
+      <textarea class="form-input" id="global-config-claude-args" rows="4" placeholder="--model&#10;sonnet" style="resize:vertical;font-family:var(--font-mono);font-size:12px;"></textarea>
+      <div class="form-hint">These arguments will be used for all projects unless overridden.</div>
+    </div>
+    <div class="modal-field">
+      <div class="form-label">Voice Dictation Language</div>
+      <select class="form-input" id="global-config-dictate-lang" style="font-size:14px; padding:8px 12px; border-radius:6px; background:var(--bg); border:1px solid var(--border); color:var(--text); width:100%;">
+        <option value="en-US">English</option>
+        <option value="vi-VN">Vietnamese</option>
+        <option value="zh-CN">Chinese (Simplified)</option>
+        <option value="ja-JP">Japanese</option>
+        <option value="ko-KR">Korean</option>
+        <option value="es-ES">Spanish</option>
+        <option value="fr-FR">French</option>
+        <option value="de-DE">German</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeGlobalConfigModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveGlobalConfig()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Project Config Modal -->
+<div class="modal-overlay" id="config-modal">
+  <div class="modal">
+    <div class="modal-title">⚙ Project Configuration</div>
+    <input type="hidden" id="config-project-id">
+    <div class="modal-field">
+      <div class="form-label">Display Name</div>
+      <input class="form-input" id="config-name" placeholder="Project name">
+    </div>
+    <div class="modal-field">
+      <div class="form-label">Claude Args (one per line)</div>
+      <textarea class="form-input" id="config-claude-args" rows="4" placeholder="--model&#10;sonnet" style="resize:vertical;font-family:var(--font-mono);font-size:12px;"></textarea>
+      <div class="form-hint">Override global Claude arguments for this project</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeConfigModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveConfig()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Auth Modal -->
+<div class="modal-overlay" id="auth-modal" style="z-index: 10000; background: var(--bg);">
+  <div class="modal">
+    <div class="modal-title">Authentication Required</div>
+    <div class="modal-field">
+      <div class="form-label">Password</div>
+      <input type="password" class="form-input" id="auth-password" onkeydown="if(event.key==='Enter') submitAuth()">
+    </div>
+    <div class="form-error" id="auth-error"></div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" style="width: 100%" onclick="submitAuth()">Login</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+let workspace = '';
+let projects = [];
+let globalClaudeArgs = [];
+
+// ── Tab switching ─────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.add-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.add-form').forEach(f => f.classList.toggle('active', f.id === `form-${tab}`));
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────
+function showToast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast show ${type}`;
+  setTimeout(() => el.className = 'toast', 3000);
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────
+function showAuthModal() {
+  document.getElementById('auth-modal').classList.add('show');
+  document.getElementById('auth-password').focus();
+}
+
+async function submitAuth() {
+  const pwd = document.getElementById('auth-password').value;
+  const errEl = document.getElementById('auth-error');
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    });
+    if (!res.ok) {
+      errEl.textContent = 'Invalid password';
+      return;
+    }
+    location.reload();
+  } catch (err) {
+    errEl.textContent = err.message;
+  }
+}
+
+// ── Fetch projects ────────────────────────────────────────────────────────
+async function fetchProjects() {
+  try {
+    const res = await fetch('/api/projects');
+    if (res.status === 401) {
+      showAuthModal();
+      return;
+    }
+    const data = await res.json();
+    workspace = data.workspace || '';
+    globalClaudeArgs = data.globalClaudeArgs || data.globalQwenArgs || [];
+    projects = data.projects || [];
+    render();
+  } catch (err) {
+    console.error('Failed to fetch projects:', err);
+  }
+}
+
+async function fetchWorkspaceFolders() {
+  try {
+    const res = await fetch('/api/workspace/folders');
+    const data = await res.json();
+    if (data.folders) {
+      const datalist = document.getElementById('workspace-folders');
+      datalist.innerHTML = data.folders.map(f => `<option value="${esc(f)}">`).join('');
+    }
+  } catch (err) {
+    console.error('Failed to fetch workspace folders:', err);
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────
+function render() {
+  const activeCount = projects.filter(p => p.status === 'running' || p.status === 'starting').length;
+  document.getElementById('active-count').textContent = activeCount;
+
+  const grid = document.getElementById('project-grid');
+  const empty = document.getElementById('empty-state');
+
+  if (projects.length === 0) {
+    grid.style.display = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+
+  grid.style.display = 'grid';
+  empty.style.display = 'none';
+
+  grid.innerHTML = projects.map(p => {
+    const isActive = p.status === 'running' || p.status === 'starting';
+    const statusDot = p.status === 'running' ? '●' : p.status === 'starting' ? '●' : p.status === 'stopped' ? '○' : '○';
+
+    return `
+      <div class="project-card" id="card-${esc(p.id)}">
+        <div class="project-status ${esc(p.status)}">${statusDot} ${esc(p.status)}</div>
+        <div class="project-card-header">
+          <div class="project-icon">${p.name.charAt(0).toUpperCase()}</div>
+          <div class="project-info">
+            <div class="project-name">${esc(p.name)}</div>
+            <div class="project-path">${esc(p.path.startsWith(workspace) ? p.path.slice(workspace.length).replace(/^[\/\\]/, '') || '.' : p.path)}</div>
+          </div>
+        </div>
+        <div class="project-actions">
+          ${isActive
+            ? `<a class="btn btn-primary" href="/project/${esc(p.id)}">Open</a>
+               <button class="btn btn-stop" onclick="stopProject('${esc(p.id)}')">⏹ Stop</button>`
+            : `<button class="btn btn-start" onclick="startProject('${esc(p.id)}')">▶ Start</button>`
+          }
+          <button class="btn" onclick="openConfigModal('${esc(p.id)}')">⚙</button>
+          <button class="btn btn-danger" onclick="removeProject('${esc(p.id)}', '${esc(p.name)}')">✕</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────
+async function startProject(id) {
+  try {
+    const res = await fetch(`/api/projects/${id}/start`, { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json();
+      if (res.status === 409 && data.error && data.error.includes("already running")) {
+        window.location.href = `/project/${id}`;
+        return;
+      }
+      showToast(data.error || 'Failed to start', 'error');
+      return;
+    }
+    window.location.href = `/project/${id}`;
+  } catch (err) {
+    showToast('Failed to start: ' + err.message, 'error');
+  }
+}
+
+async function stopProject(id) {
+  try {
+    const res = await fetch(`/api/projects/${id}/stop`, { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json();
+      showToast(data.error || 'Failed to stop', 'error');
+      return;
+    }
+    showToast('Claude stopped');
+    fetchProjects();
+  } catch (err) {
+    showToast('Failed to stop: ' + err.message, 'error');
+  }
+}
+
+async function removeProject(id, name) {
+  if (!confirm(`Remove "${name}" from the dashboard?\n\nThis will NOT delete the folder on disk.`)) return;
+  try {
+    const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json();
+      showToast(data.error || 'Failed to remove', 'error');
+      return;
+    }
+    showToast('Project removed');
+    fetchProjects();
+  } catch (err) {
+    showToast('Failed to remove: ' + err.message, 'error');
+  }
+}
+
+function openAddModal() {
+  document.getElementById('add-modal').classList.add('show');
+}
+
+function closeAddModal() {
+  document.getElementById('add-modal').classList.remove('show');
+}
+
+// ── Add project actions ───────────────────────────────────────────────────
+async function addFolder() {
+  const rawPath = document.getElementById('input-folder-path').value.trim();
+  const path = rawPath.replace(/^[\/\\]+/, '');
+  const errEl = document.getElementById('error-folder');
+  errEl.className = 'form-error';
+  if (!path) { errEl.textContent = 'Path is required'; errEl.className = 'form-error show'; return; }
+
+  const fullPath = workspace + '/' + path;
+
+  const btn = document.getElementById('btn-add-folder');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/projects/add-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: fullPath }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed';
+      errEl.className = 'form-error show';
+      return;
+    }
+    document.getElementById('input-folder-path').value = '';
+    closeAddModal();
+    showToast(`Added "${data.name}"`);
+    fetchProjects();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.className = 'form-error show';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function createRepo() {
+  const name = document.getElementById('input-repo-name').value.trim();
+  const errEl = document.getElementById('error-create');
+  errEl.className = 'form-error';
+  if (!name) { errEl.textContent = 'Name is required'; errEl.className = 'form-error show'; return; }
+
+  const btn = document.getElementById('btn-create-repo');
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/projects/create-repo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed';
+      errEl.className = 'form-error show';
+      return;
+    }
+    document.getElementById('input-repo-name').value = '';
+    closeAddModal();
+    showToast(`Created "${data.name}"`);
+    fetchProjects();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.className = 'form-error show';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function cloneRepo() {
+  const url = document.getElementById('input-clone-url').value.trim();
+  const name = document.getElementById('input-clone-name').value.trim();
+  const errEl = document.getElementById('error-clone');
+  errEl.className = 'form-error';
+  if (!url) { errEl.textContent = 'URL is required'; errEl.className = 'form-error show'; return; }
+
+  const btn = document.getElementById('btn-clone');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading-spinner"></span> Cloning…';
+  try {
+    const res = await fetch('/api/projects/clone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, name: name || undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed';
+      errEl.className = 'form-error show';
+      return;
+    }
+    document.getElementById('input-clone-url').value = '';
+    document.getElementById('input-clone-name').value = '';
+    closeAddModal();
+    showToast(`Cloned "${data.name}"`);
+    fetchProjects();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.className = 'form-error show';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Clone';
+  }
+}
+
+// ── Config modal ──────────────────────────────────────────────────────────
+function openGlobalConfigModal() {
+  document.getElementById('global-config-claude-args').value = globalClaudeArgs.join('\n');
+  document.getElementById('global-config-dictate-lang').value = localStorage.getItem('claude_dictate_lang') || 'en-US';
+  document.getElementById('global-config-modal').classList.add('show');
+}
+
+function closeGlobalConfigModal() {
+  document.getElementById('global-config-modal').classList.remove('show');
+}
+
+async function saveGlobalConfig() {
+  const argsText = document.getElementById('global-config-claude-args').value.trim();
+  const args = argsText ? argsText.split('\n').map(s => s.trim()).filter(Boolean) : [];
+  
+  const dictateLang = document.getElementById('global-config-dictate-lang').value;
+  localStorage.setItem('claude_dictate_lang', dictateLang);
+
+  try {
+    const res = await fetch(`/api/settings/global`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ globalClaudeArgs: args, globalQwenArgs: args }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      showToast(data.error || 'Failed to save', 'error');
+      return;
+    }
+    closeGlobalConfigModal();
+    showToast('Global configuration saved');
+    fetchProjects();
+  } catch (err) {
+    showToast('Failed to save: ' + err.message, 'error');
+  }
+}
+
+function openConfigModal(id) {
+  const proj = projects.find(p => p.id === id);
+  if (!proj) return;
+  document.getElementById('config-project-id').value = id;
+  document.getElementById('config-name').value = proj.name;
+  document.getElementById('config-claude-args').value = (proj.claudeArgs || proj.qwenArgs || []).join('\n');
+  document.getElementById('config-modal').classList.add('show');
+}
+
+function closeConfigModal() {
+  document.getElementById('config-modal').classList.remove('show');
+}
+
+async function saveConfig() {
+  const id = document.getElementById('config-project-id').value;
+  const name = document.getElementById('config-name').value.trim();
+  const argsText = document.getElementById('config-claude-args').value.trim();
+  const claudeArgs = argsText ? argsText.split('\n').map(s => s.trim()).filter(Boolean) : [];
+
+  try {
+    const res = await fetch(`/api/projects/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, claudeArgs: claudeArgs, qwenArgs: claudeArgs }),
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      showToast(data.error || 'Failed to save', 'error');
+      return;
+    }
+    closeConfigModal();
+    showToast('Configuration saved');
+    fetchProjects();
+  } catch (err) {
+    showToast('Failed to save: ' + err.message, 'error');
+  }
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) {
+      e.target.classList.remove('show');
+    }
+  });
+});
+
+// ── Enter key for forms ───────────────────────────────────────────────────
+document.getElementById('input-folder-path').addEventListener('keydown', e => { if (e.key === 'Enter') addFolder(); });
+document.getElementById('input-repo-name').addEventListener('keydown', e => { if (e.key === 'Enter') createRepo(); });
+document.getElementById('input-clone-url').addEventListener('keydown', e => { if (e.key === 'Enter') cloneRepo(); });
+
+// ── Init ──────────────────────────────────────────────────────────────────
+fetchProjects();
+fetchWorkspaceFolders();
+// Poll every 3 seconds for status updates
+setInterval(fetchProjects, 3000);
+</script>
+</body>
+</html>
