@@ -460,10 +460,13 @@ func translateClaudeEvent(line []byte) ([]byte, error) {
 			sessionID, _ := base["session_id"].(string)
 			cwd, _ := base["cwd"].(string)
 
+			model, _ := base["model"].(string)
+
 			// Rewrite to session_start format
 			type sessionStartData struct {
 				SessionID string `json:"session_id"`
 				Cwd       string `json:"cwd"`
+				Model     string `json:"model"`
 			}
 			type sessionStartEvent struct {
 				Type    string           `json:"type"`
@@ -476,6 +479,7 @@ func translateClaudeEvent(line []byte) ([]byte, error) {
 				Data: sessionStartData{
 					SessionID: sessionID,
 					Cwd:       cwd,
+					Model:     model,
 				},
 			}
 			return json.Marshal(ev)
@@ -509,6 +513,26 @@ func appendEventFile(path string, data []byte) error {
 	defer f.Close()
 	_, err = f.Write(append(data, '\n'))
 	return err
+}
+
+// appendUserEvent records a user prompt in the event timeline so the UI can
+// show it and replay it later. Claude's output stream does not echo the prompt,
+// so without this the conversation would only show Claude's side.
+func appendUserEvent(eventsPath, text string) error {
+	ev := map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []map[string]any{
+				{"type": "text", "text": text},
+			},
+		},
+	}
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	return appendEventFile(eventsPath, data)
 }
 
 // appendInput appends one JSONL command to the claude input file.

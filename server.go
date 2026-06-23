@@ -975,6 +975,8 @@ func (s *Server) handleProjectStatus(w http.ResponseWriter, r *http.Request, pro
 		"projectId":  proj.ID,
 		"projectDir": proj.Path,
 		"name":       proj.Name,
+		"claudeArgs": proj.ClaudeArgs,
+		"qwenArgs":   proj.QwenArgs,
 	})
 }
 

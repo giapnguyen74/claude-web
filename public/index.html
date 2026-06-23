@@ -20,6 +20,16 @@
   <span id="header-sep">/</span>
   <span id="project-name">—</span>
   <div id="header-right">
+    <div id="model-container" style="display:inline-flex; align-items:center; margin-right:12px; font-size:12px; gap:6px;">
+      <span style="color:var(--text-muted); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Model:</span>
+      <select id="model-selector" class="header-action-btn" style="padding:4px 8px; background:var(--surface2); color:var(--text); border:1px solid var(--border); border-radius:5px; font-family:var(--font-sans); font-size:12px; cursor:pointer;" onchange="changeModel()">
+        <option value="sonnet">Claude 3.5 Sonnet</option>
+        <option value="opus">Claude 3 Opus</option>
+        <option value="haiku">Claude 3.5 Haiku</option>
+        <option value="custom">Custom...</option>
+      </select>
+      <span id="model-display" style="font-family: var(--font-mono); font-size: 12px; color: var(--accent); display: none;"></span>
+    </div>
     <button id="browse-btn" class="header-action-btn" onclick="toggleSidebar()">📁 Files</button>
     <span id="status-badge" class="starting">● idle</span>
     <button id="start-btn" class="header-action-btn" style="display:none">▶ start</button>

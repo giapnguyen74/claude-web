@@ -324,6 +324,14 @@ func (pm *ProcManager) handleInputJob(ap *ActiveProject, job inputJob) {
 				writeErr = ap.Proc.stdinPipe.Close()
 			}
 		} else {
+			// Record the user's prompt in the event timeline so the UI shows it
+			// (Claude's output stream does not echo the prompt back). Only for
+			// actual submits — not tool-approval confirmations.
+			if m["type"] == "submit" {
+				if text, ok := m["text"].(string); ok && text != "" {
+					_ = appendUserEvent(ap.EventsPath, text)
+				}
+			}
 			// Normal user turn or confirmation
 			claudeInput, err := toClaudeInput(m)
 			if err != nil {

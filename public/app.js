@@ -452,6 +452,8 @@ function stopWorking() {
 
 // ── State ─────────────────────────────────────────────────────────────────
 let sessionStatus = 'starting';
+let currentProjectName = '';
+let currentClaudeArgs = [];
 
 // Current streaming assistant message row
 let streamingRow      = null;  // the .msg-row div
@@ -730,6 +732,9 @@ function handleClaudeEvent(ev) {
         const cwd  = ev.data?.cwd || '';
         const name = cwd.split('/').filter(Boolean).pop() || cwd || '—';
         projectNameEl.textContent = cwd || name;
+        if (ev.data?.model) {
+          showRunningModel(ev.data.model);
+        }
         const note = document.createElement('div');
         note.className = 'notice';
         note.textContent = `session started · ${cwd}`;
@@ -1180,12 +1185,127 @@ fetch(`${API_BASE}/status`)
     if (!data) return;
     if (data.name) {
       projectNameEl.textContent = data.name;
+      currentProjectName = data.name;
     } else if (data.projectDir) {
       projectNameEl.textContent = data.projectDir;
+      currentProjectName = data.projectDir.split('/').pop();
     }
+    currentClaudeArgs = data.claudeArgs || data.qwenArgs || [];
+    updateSelectorFromArgs(currentClaudeArgs);
     setStatus(data.status, data.sessionId);
   })
   .catch(console.error);
+
+// ── Model helpers & actions ────────────────────────────────────────────────
+function getModelFromArgs(args) {
+  if (!args) return '';
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--model' && i + 1 < args.length) {
+      return args[i + 1];
+    }
+  }
+  return '';
+}
+
+function updateSelectorFromArgs(args) {
+  const model = getModelFromArgs(args);
+  const selector = document.getElementById('model-selector');
+  if (!selector) return;
+
+  if (!model) {
+    selector.value = 'sonnet';
+    return;
+  }
+
+  if (model === 'sonnet' || model.includes('sonnet')) {
+    selector.value = 'sonnet';
+  } else if (model === 'opus' || model.includes('opus')) {
+    selector.value = 'opus';
+  } else if (model === 'haiku' || model.includes('haiku')) {
+    selector.value = 'haiku';
+  } else {
+    selector.value = 'custom';
+    const customOpt = selector.querySelector('option[value="custom"]');
+    if (customOpt) {
+      customOpt.textContent = `Custom (${model})`;
+    }
+  }
+}
+
+function showRunningModel(modelName) {
+  const display = document.getElementById('model-display');
+  const selector = document.getElementById('model-selector');
+  if (display && selector) {
+    display.textContent = modelName;
+    display.style.display = 'inline';
+    selector.style.display = 'none';
+  }
+}
+
+function resetModelDisplay() {
+  const display = document.getElementById('model-display');
+  const selector = document.getElementById('model-selector');
+  if (display && selector) {
+    display.style.display = 'none';
+    selector.style.display = 'inline';
+    selector.disabled = false;
+  }
+}
+
+async function changeModel() {
+  const selector = document.getElementById('model-selector');
+  let selectedModel = selector.value;
+  if (selectedModel === 'custom') {
+    const custom = prompt("Enter custom model name (e.g. 'claude-3-5-sonnet-20241022'):");
+    if (!custom) {
+      updateSelectorFromArgs(currentClaudeArgs);
+      return;
+    }
+    selectedModel = custom;
+  }
+
+  // Build new args list
+  let newArgs = [...currentClaudeArgs];
+  let found = false;
+  for (let i = 0; i < newArgs.length; i++) {
+    if (newArgs[i] === '--model' && i + 1 < newArgs.length) {
+      newArgs[i + 1] = selectedModel;
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    newArgs.push('--model', selectedModel);
+  }
+
+  try {
+    const res = await fetch(`/api/projects/${PROJECT_ID}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: currentProjectName, claudeArgs: newArgs, qwenArgs: newArgs }),
+    });
+    if (res.ok) {
+      currentClaudeArgs = newArgs;
+      showToast('Model updated successfully');
+      updateSelectorFromArgs(newArgs);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      alert('Failed to save model: ' + (data.error || res.statusText));
+      updateSelectorFromArgs(currentClaudeArgs);
+    }
+  } catch (err) {
+    alert('Failed to save model: ' + err.message);
+    updateSelectorFromArgs(currentClaudeArgs);
+  }
+}
+
+function showToast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `toast show ${type}`;
+  setTimeout(() => el.className = 'toast', 3000);
+}
 
 // ── File Viewer ───────────────────────────────────────────────────────────
 let currentFileContent = '';
