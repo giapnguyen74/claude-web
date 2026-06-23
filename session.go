@@ -348,6 +348,17 @@ func lookupNode() (string, error) {
 	return "", fmt.Errorf("node not found")
 }
 
+// hasFlag reports whether args already contains the given flag, in either
+// "--flag value" or "--flag=value" form.
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag || strings.HasPrefix(a, flag+"=") {
+			return true
+		}
+	}
+	return false
+}
+
 func spawnClaude(opts spawnOptions) (*claudeProc, error) {
 	claudeBin, err := resolveClaude()
 	if err != nil {
@@ -359,8 +370,13 @@ func spawnClaude(opts spawnOptions) (*claudeProc, error) {
 		"-p",
 		"--input-format", "stream-json",
 		"--output-format", "stream-json",
-		"--permission-mode", "acceptEdits",
 		"--verbose",
+	}
+	// Default permission mode is acceptEdits, but only if the user hasn't set
+	// their own via project/global args (e.g. --permission-mode bypassPermissions
+	// or --allowedTools …) — otherwise the flag would be passed twice.
+	if !hasFlag(opts.extraArgs, "--permission-mode") {
+		args = append(args, "--permission-mode", "acceptEdits")
 	}
 	args = append(args, opts.extraArgs...)
 
