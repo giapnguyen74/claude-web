@@ -723,6 +723,7 @@ async function sendApproval(requestId, allowed) {
 
 // ── Main event handler ────────────────────────────────────────────────────
 let isReplaying = false;
+let availableSlashCommands = []; // populated from the session_start (init) event
 
 function handleClaudeEvent(ev) {
   switch (ev.type) {
@@ -735,6 +736,11 @@ function handleClaudeEvent(ev) {
         if (ev.data?.model) {
           showRunningModel(ev.data.model);
         }
+        // Remember which slash commands this session actually supports, so the
+        // input can suggest only the ones that work in this headless mode.
+        if (Array.isArray(ev.data?.slash_commands)) {
+          availableSlashCommands = ev.data.slash_commands.slice().sort();
+        }
         const note = document.createElement('div');
         note.className = 'notice';
         note.textContent = `session started · ${cwd}`;
@@ -742,6 +748,14 @@ function handleClaudeEvent(ev) {
       } else if (ev.subtype === 'turn_end') {
         // End of one turn — the session stays alive for the next message.
         stopWorking();
+        if (ev.is_error) {
+          const note = document.createElement('div');
+          note.className = 'notice error';
+          note.textContent = ev.error
+            ? `error: ${ev.error}`
+            : `command failed${ev.result_subtype ? ' (' + ev.result_subtype + ')' : ''}`;
+          appendRow(note);
+        }
       } else if (ev.subtype === 'session_end') {
         // True session end (kept for older history logs that used this marker).
         stopWorking();
@@ -1064,6 +1078,15 @@ async function sendMessage() {
 sendBtn.addEventListener('click', sendMessage);
 
 inputEl.addEventListener('keydown', (e) => {
+  // While the slash-command suggestions are open, the arrow/Enter/Tab keys
+  // drive the list instead of sending.
+  if (slashSuggestOpen()) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); moveSlashSuggest(1); return; }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); moveSlashSuggest(-1); return; }
+    if (e.key === 'Tab')       { e.preventDefault(); applySlashSuggest(slashSuggestIndex); return; }
+    if (e.key === 'Escape')    { e.preventDefault(); hideSlashSuggest(); return; }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); applySlashSuggest(slashSuggestIndex); return; }
+  }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
@@ -1075,7 +1098,72 @@ inputEl.addEventListener('input', () => {
   inputEl.style.height = 'auto';
   inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px';
   updateInputUI();
+  updateSlashSuggest();
 });
+
+inputEl.addEventListener('blur', () => setTimeout(hideSlashSuggest, 120));
+
+// ── Slash-command autocomplete ─────────────────────────────────────────────
+let slashSuggestEl = null;
+let slashSuggestItems = [];
+let slashSuggestIndex = -1;
+
+function slashSuggestOpen() {
+  return slashSuggestEl && slashSuggestEl.style.display === 'block' && slashSuggestItems.length > 0;
+}
+
+function hideSlashSuggest() {
+  if (slashSuggestEl) slashSuggestEl.style.display = 'none';
+  slashSuggestItems = [];
+  slashSuggestIndex = -1;
+}
+
+function updateSlashSuggest() {
+  const val = inputEl.value;
+  // Only suggest for a bare "/command" prefix (no space/newline yet).
+  if (!val.startsWith('/') || /[\s]/.test(val) || availableSlashCommands.length === 0) {
+    hideSlashSuggest();
+    return;
+  }
+  const q = val.slice(1).toLowerCase();
+  const matches = availableSlashCommands.filter(c => c.toLowerCase().startsWith(q)).slice(0, 8);
+  if (matches.length === 0) { hideSlashSuggest(); return; }
+
+  slashSuggestItems = matches;
+  slashSuggestIndex = 0;
+  if (!slashSuggestEl) {
+    slashSuggestEl = document.createElement('div');
+    slashSuggestEl.id = 'slash-suggest';
+    document.getElementById('input-area').appendChild(slashSuggestEl);
+  }
+  slashSuggestEl.innerHTML = matches
+    .map((c, i) => `<div class="slash-item${i === 0 ? ' active' : ''}" data-i="${i}">/${esc(c)}</div>`)
+    .join('');
+  slashSuggestEl.querySelectorAll('.slash-item').forEach(item => {
+    item.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // keep textarea focus
+      applySlashSuggest(parseInt(item.dataset.i, 10));
+    });
+  });
+  slashSuggestEl.style.display = 'block';
+}
+
+function moveSlashSuggest(delta) {
+  if (slashSuggestItems.length === 0) return;
+  slashSuggestIndex = (slashSuggestIndex + delta + slashSuggestItems.length) % slashSuggestItems.length;
+  slashSuggestEl.querySelectorAll('.slash-item').forEach((item, i) => {
+    item.classList.toggle('active', i === slashSuggestIndex);
+  });
+}
+
+function applySlashSuggest(i) {
+  const cmd = slashSuggestItems[i];
+  if (!cmd) return;
+  inputEl.value = '/' + cmd + ' ';
+  hideSlashSuggest();
+  inputEl.focus();
+  updateInputUI();
+}
 
 // Start button
 document.getElementById('start-btn').addEventListener('click', async () => {

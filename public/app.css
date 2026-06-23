@@ -740,6 +740,34 @@
     .toast.error { border-color: var(--red); color: var(--red); }
     .toast.success { border-color: var(--green); color: var(--green); }
 
+    /* ── Slash-command autocomplete ─────────────────────────────────────── */
+    #input-area { position: relative; }
+    #slash-suggest {
+      position: absolute;
+      left: 12px;
+      bottom: calc(100% + 6px);
+      min-width: 200px;
+      max-width: 340px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      overflow: hidden;
+      z-index: 60;
+      display: none;
+    }
+    .slash-item {
+      padding: 6px 12px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+    }
+    .slash-item.active, .slash-item:hover { background: var(--accent); color: var(--bg); }
+
+    /* Error notice (failed turn / rejected command) */
+    .notice.error { color: var(--red); }
+
     /* ── Copy button on code blocks ─────────────────────────────────────── */
     .md pre, #fv-content pre { position: relative; }
     .copy-btn {

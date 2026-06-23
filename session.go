@@ -473,46 +473,43 @@ func translateClaudeEvent(line []byte) ([]byte, error) {
 	switch t {
 	case "system":
 		if st == "init" {
-			sessionID, _ := base["session_id"].(string)
-			cwd, _ := base["cwd"].(string)
-
-			model, _ := base["model"].(string)
-
-			// Rewrite to session_start format
-			type sessionStartData struct {
-				SessionID string `json:"session_id"`
-				Cwd       string `json:"cwd"`
-				Model     string `json:"model"`
+			// Rewrite to session_start, preserving the metadata the UI needs:
+			// session id, cwd, running model, available slash commands, and tools.
+			data := map[string]any{
+				"session_id": base["session_id"],
+				"cwd":        base["cwd"],
+				"model":      base["model"],
 			}
-			type sessionStartEvent struct {
-				Type    string           `json:"type"`
-				Subtype string           `json:"subtype"`
-				Data    sessionStartData `json:"data"`
+			if v, ok := base["slash_commands"]; ok {
+				data["slash_commands"] = v
 			}
-			ev := sessionStartEvent{
-				Type:    "system",
-				Subtype: "session_start",
-				Data: sessionStartData{
-					SessionID: sessionID,
-					Cwd:       cwd,
-					Model:     model,
-				},
+			if v, ok := base["tools"]; ok {
+				data["tools"] = v
 			}
-			return json.Marshal(ev)
+			return json.Marshal(map[string]any{
+				"type":    "system",
+				"subtype": "session_start",
+				"data":    data,
+			})
 		}
 	case "result":
 		// A `result` marks the end of a single TURN, not the session. In
 		// stream-json mode the claude process stays alive on stdin for the next
 		// message, so we emit a turn_end marker and leave the session running.
 		// The session is considered stopped only when the process actually exits
-		// (handled by the monitor goroutine) or on /exit.
-		type turnEndEvent struct {
-			Type    string `json:"type"`
-			Subtype string `json:"subtype"`
+		// (handled by the monitor goroutine) or on /exit. We carry error info so
+		// the UI can surface failed turns / rejected slash commands instead of
+		// showing nothing.
+		ev := map[string]any{
+			"type":           "system",
+			"subtype":        "turn_end",
+			"is_error":       base["is_error"],
+			"result_subtype": st,
 		}
-		ev := turnEndEvent{
-			Type:    "system",
-			Subtype: "turn_end",
+		if isErr, _ := base["is_error"].(bool); isErr {
+			if msg, _ := base["result"].(string); msg != "" {
+				ev["error"] = msg
+			}
 		}
 		return json.Marshal(ev)
 	}
