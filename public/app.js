@@ -1286,8 +1286,15 @@ async function changeModel() {
     });
     if (res.ok) {
       currentClaudeArgs = newArgs;
-      showToast('Model updated successfully');
       updateSelectorFromArgs(newArgs);
+      // --model is a process-spawn argument, so it only takes effect on a fresh
+      // process. If a session is live, re-init it now to apply the new model.
+      if (sessionStatus === 'running' || sessionStatus === 'starting') {
+        showToast(`Restarting with ${selectedModel}…`);
+        await restartSession();
+      } else {
+        showToast(`Model set to ${selectedModel} — applies on start`);
+      }
     } else {
       const data = await res.json().catch(() => ({}));
       alert('Failed to save model: ' + (data.error || res.statusText));
@@ -1299,12 +1306,21 @@ async function changeModel() {
   }
 }
 
-function showToast(msg, type = 'success') {
-  const el = document.getElementById('toast');
-  if (!el) return;
-  el.textContent = msg;
-  el.className = `toast show ${type}`;
-  setTimeout(() => el.className = 'toast', 3000);
+// Re-initialize the session (stop then start) so newly-saved spawn args such as
+// --model take effect. Reloads to reconnect to the fresh session.
+async function restartSession() {
+  try {
+    await fetch(`${API_BASE}/stop`, { method: 'POST' });
+    const res = await fetch(`${API_BASE}/start`, { method: 'POST' });
+    if (res.ok) {
+      location.reload();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      showToast('Failed to restart: ' + (data.error || res.statusText), 'error');
+    }
+  } catch (err) {
+    showToast('Failed to restart: ' + err.message, 'error');
+  }
 }
 
 // ── File Viewer ───────────────────────────────────────────────────────────
