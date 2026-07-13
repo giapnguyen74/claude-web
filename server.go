@@ -839,6 +839,8 @@ func (s *Server) handleProjectAPI(w http.ResponseWriter, r *http.Request) {
 		s.handleProjectMessage(w, r, projectID)
 	case "approve":
 		s.handleProjectApprove(w, r, projectID)
+	case "answer":
+		s.handleProjectAnswer(w, r, projectID)
 	case "events":
 		s.handleProjectWS(w, r, projectID)
 	case "events/history":
@@ -1067,6 +1069,46 @@ func (s *Server) handleProjectApprove(w http.ResponseWriter, r *http.Request, pr
 		"type":       "confirmation_response",
 		"request_id": body.RequestID,
 		"allowed":    *body.Allowed,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleProjectAnswer delivers a reply to a pending tool call (e.g. the
+// AskUserQuestion tool). Claude emits the question as a tool_use and blocks
+// until it receives a tool_result referencing that tool_use id, so the answer
+// must be sent as a tool_result rather than a new user turn.
+func (s *Server) handleProjectAnswer(w http.ResponseWriter, r *http.Request, projectID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ToolUseID string `json:"toolUseId"`
+		Text      string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ToolUseID == "" || strings.TrimSpace(body.Text) == "" {
+		writeError(w, http.StatusBadRequest, "toolUseId and text are required")
+		return
+	}
+
+	ap := s.procmgr.GetActive(projectID)
+	if ap == nil {
+		writeError(w, http.StatusConflict, "project is not running")
+		return
+	}
+	status, _ := ap.State.get()
+	if status == "stopped" {
+		writeError(w, http.StatusConflict, "session is stopped")
+		return
+	}
+
+	if err := ap.sendInput(map[string]any{
+		"type":        "tool_result",
+		"tool_use_id": body.ToolUseID,
+		"text":        strings.TrimSpace(body.Text),
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

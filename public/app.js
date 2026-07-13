@@ -614,6 +614,8 @@ function renderUserEvent(ev) {
 // ── Streaming: start / append / finalize ─────────────────────────────────
 
 function startStreamingMessage() {
+  // A new assistant turn supersedes any unanswered AskUserQuestion card.
+  resolveAllPendingAsks();
   // Clean up any orphaned streaming row (e.g. during replay)
   if (streamingRow) {
     streamingRow.dataset.streaming = '';
@@ -654,6 +656,9 @@ function renderAssistantEvent(ev) {
     streamingText = '';
   }
 
+  // A new assistant turn means any earlier AskUserQuestion has been answered.
+  resolveAllPendingAsks();
+
   if (!ev.message?.content) return;
 
   const row = document.createElement('div');
@@ -674,7 +679,13 @@ function renderAssistantEvent(ev) {
       applyHighlight(md);
       body.appendChild(md);
     } else if (block.type === 'tool_use') {
-      body.appendChild(renderToolUseBlock(block));
+      // AskUserQuestion needs a human answer routed back as a tool_result, so
+      // render it as an interactive card (except when re-rendering old history).
+      if (block.name === 'AskUserQuestion' && !historyRendering) {
+        body.appendChild(renderAskUserQuestion(block));
+      } else {
+        body.appendChild(renderToolUseBlock(block));
+      }
     }
   }
 
@@ -766,6 +777,134 @@ async function sendApproval(requestId, allowed) {
     console.error('Failed to send approval:', err);
     if (allowBtn) allowBtn.disabled = false;
     if (denyBtn)  denyBtn.disabled  = false;
+  }
+}
+
+// ── AskUserQuestion (interactive tool answer) ──────────────────────────────
+// Claude asks via the AskUserQuestion tool: it emits a tool_use block and then
+// blocks until it receives a tool_result referencing that tool_use id. We render
+// the options as buttons (and let the composer answer too), then reply with a
+// proper tool_result via POST .../answer — a plain user turn would not answer it.
+const pendingAsk = {};        // toolUseId -> { card }
+let activeAskToolUseId = null;
+
+function resolveAllPendingAsks() {
+  for (const id of Object.keys(pendingAsk)) {
+    const c = pendingAsk[id] && pendingAsk[id].card;
+    if (c) {
+      c.classList.add('resolved');
+      c.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    }
+    delete pendingAsk[id];
+  }
+  activeAskToolUseId = null;
+}
+
+function renderAskUserQuestion(block) {
+  const toolUseId = block.id || ('ask-' + Math.random().toString(36).slice(2));
+  const input = block.input || {};
+  const questions = Array.isArray(input.questions) ? input.questions : [];
+  const selections = questions.map(() => []);
+
+  const card = document.createElement('div');
+  card.className = 'approval-card ask-card';
+  card.style.marginTop = '4px';
+
+  const title = document.createElement('div');
+  title.className = 'approval-title';
+  title.textContent = '❔ Claude is asking — pick an option, or type an answer below';
+  card.appendChild(title);
+
+  questions.forEach((q, qi) => {
+    const qWrap = document.createElement('div');
+    qWrap.style.cssText = 'margin:10px 0;';
+
+    const qText = document.createElement('div');
+    qText.style.cssText = 'font-weight:600; margin-bottom:6px;';
+    qText.textContent = q.question || q.header || ('Question ' + (qi + 1));
+    qWrap.appendChild(qText);
+
+    const multi = !!q.multiSelect;
+    const opts = Array.isArray(q.options) ? q.options : [];
+    opts.forEach(opt => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn ask-option';
+      b.style.cssText = 'display:block; width:100%; text-align:left; margin:4px 0; padding:8px 10px; white-space:normal;';
+      const lbl = document.createElement('div');
+      lbl.style.fontWeight = '600';
+      lbl.textContent = opt.label || '';
+      b.appendChild(lbl);
+      if (opt.description) {
+        const d = document.createElement('div');
+        d.style.cssText = 'font-size:12px; opacity:0.75; margin-top:2px;';
+        d.textContent = opt.description;
+        b.appendChild(d);
+      }
+      b.addEventListener('click', () => {
+        if (card.classList.contains('resolved')) return;
+        if (multi) {
+          const idx = selections[qi].indexOf(opt.label);
+          if (idx >= 0) { selections[qi].splice(idx, 1); b.style.outline = ''; }
+          else { selections[qi].push(opt.label); b.style.outline = '2px solid var(--accent, #6b8afd)'; }
+        } else {
+          selections[qi] = [opt.label];
+          qWrap.querySelectorAll('.ask-option').forEach(x => { x.style.outline = ''; });
+          b.style.outline = '2px solid var(--accent, #6b8afd)';
+        }
+      });
+      qWrap.appendChild(b);
+    });
+    card.appendChild(qWrap);
+  });
+
+  const actions = document.createElement('div');
+  actions.className = 'approval-actions';
+  actions.style.marginTop = '8px';
+  const send = document.createElement('button');
+  send.type = 'button';
+  send.className = 'btn btn-allow';
+  send.textContent = 'Send answer';
+  send.addEventListener('click', () => {
+    if (selections.some(s => s.length === 0)) {
+      showToast('Pick an option for each question, or type your answer in the box.', 'error');
+      return;
+    }
+    const answer = questions.map((q, i) =>
+      `${q.header || q.question || ('Q' + (i + 1))}: ${selections[i].join(', ')}`
+    ).join('\n');
+    submitAnswer(toolUseId, answer, card);
+  });
+  actions.appendChild(send);
+  card.appendChild(actions);
+
+  pendingAsk[toolUseId] = { card };
+  activeAskToolUseId = toolUseId;
+  return card;
+}
+
+async function submitAnswer(toolUseId, text, card) {
+  if (card) {
+    card.classList.add('resolved');
+    card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  }
+  if (activeAskToolUseId === toolUseId) activeAskToolUseId = null;
+  delete pendingAsk[toolUseId];
+  if (!isReplaying) startWorking();
+  try {
+    const res = await fetch(`${API_BASE}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolUseId, text }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      showToast('Failed to send answer: ' + (err.error || res.statusText), 'error');
+      stopWorking();
+    }
+  } catch (err) {
+    showToast('Failed to send answer: ' + err.message, 'error');
+    stopWorking();
   }
 }
 
@@ -1082,6 +1221,19 @@ updateInputUI();
 async function sendMessage() {
   const text = inputEl.value.trim();
   if (!text) return;
+
+  // If Claude is waiting on an AskUserQuestion, the typed text IS the answer to
+  // that tool call — deliver it as a tool_result, not a new user turn.
+  if (activeAskToolUseId) {
+    const toolUseId = activeAskToolUseId;
+    const entry = pendingAsk[toolUseId];
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    updateInputUI();
+    submitAnswer(toolUseId, text, entry && entry.card);
+    return;
+  }
+
   if (sessionStatus !== 'running') {
     // Keep the typed text and tell the user why nothing was sent.
     showToast(
