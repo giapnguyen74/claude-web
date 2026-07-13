@@ -2,6 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Content-Security-Policy: restrict where scripts/styles/data may load from.
+       Scripts and styles are limited to same-origin + cdnjs (with 'unsafe-inline'
+       still required by the app's inline handlers/styles), everything else is
+       same-origin only. This blocks injected external scripts, object/embed,
+       base-uri and form-action hijacking. To harden further, drop 'unsafe-inline'
+       from script-src once inline handlers/scripts are fully externalised. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>claude-code-web</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>

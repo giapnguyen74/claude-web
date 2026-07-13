@@ -198,7 +198,7 @@ func (s *Server) run() error {
 	mux.HandleFunc("/project/", s.handleConversationPage)
 	mux.Handle("/public/", http.FileServer(http.FS(publicFS)))
 
-	mux.HandleFunc("/api/auth/login", s.handleLogin)
+	mux.Handle("/api/auth/login", s.requireOrigin(http.HandlerFunc(s.handleLogin)))
 
 	// Auth wrapper for all API routes (excluding login itself)
 	apiMux := http.NewServeMux()
@@ -211,7 +211,7 @@ func (s *Server) run() error {
 	apiMux.HandleFunc("/api/check-origin", s.handleCheckOrigin)
 	apiMux.HandleFunc("/api/projects/", s.handleProjectAPI)
 
-	mux.Handle("/api/", s.authMiddleware(apiMux))
+	mux.Handle("/api/", s.requireOrigin(s.authMiddleware(apiMux)))
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.host, s.cfg.port)
 	s.srv = &http.Server{Addr: addr, Handler: mux}
@@ -563,6 +563,35 @@ func (s *Server) handleWorkspaceFolders(w http.ResponseWriter, r *http.Request) 
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────
+
+// requireOrigin blocks cross-origin state-changing requests (CSRF defense).
+//
+// Safe methods (GET/HEAD/OPTIONS) pass through — they change no state and their
+// responses are already CORS-protected. For unsafe methods the Origin header
+// must be either empty (non-browser clients such as curl, which cannot be a
+// CSRF vector), loopback, or one of the explicitly allowed --origins domains.
+//
+// A browser cannot suppress the Origin header on a cross-site request, so an
+// attacker page's origin will never match localhost or the allowlist and is
+// rejected. This holds even in the default passwordless loopback mode, where no
+// auth cookie exists to protect these endpoints.
+func (s *Server) requireOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			// Safe methods: no state change.
+		default:
+			origin := r.Header.Get("Origin")
+			if !checkOrigin(origin, s.cfg.origins) {
+				fmt.Printf("[origin] cross-origin %s %s rejected: %q (allowed: %v)\n",
+					r.Method, r.URL.Path, origin, s.cfg.origins)
+				writeError(w, http.StatusForbidden, "cross-origin request blocked")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

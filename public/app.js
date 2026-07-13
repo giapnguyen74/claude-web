@@ -88,7 +88,8 @@ function showToast(msg, type = 'success') {
 function esc(str) {
   return String(str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;').replace(/`/g, '&#96;');
 }
 
 function scrollToBottom() {
@@ -199,27 +200,31 @@ function handleItemClick(path, isDir, event) {
   }
 }
 
+// The file name is placed only in a data-* attribute (read back via dataset,
+// never re-parsed as HTML or JS) and as escaped text. Clicks are handled by a
+// single delegated listener (see onSidebarClick), so an untrusted file name can
+// never break out into an executable context.
+const TREE_MENU_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>`;
+
 function renderTreeLevel(dirPath, depth) {
   const files = fileTreeCache[dirPath];
   if (!files) return '';
-  
+
   let html = '';
   for (const f of files) {
     if (f.name.startsWith('.')) continue;
-    
+
     const targetPath = dirPath === '' ? f.name : `${dirPath}/${f.name}`;
     const padding = depth * 16 + 16;
-    
+
     if (f.isDir) {
       const isExpanded = expandedDirs.has(targetPath);
       const icon = isExpanded ? '📂' : '📁';
       html += `
-        <div class="file-item dir" style="padding-left: ${padding}px">
-          <div class="file-item-icon" onclick="handleItemClick('${esc(targetPath)}', true, event)">${icon}</div>
-          <div style="flex:1" onclick="handleItemClick('${esc(targetPath)}', true, event)">${esc(f.name)}</div>
-          <button class="file-view-btn" onclick="openDropdown(event, '${esc(targetPath)}', true)" title="More Actions">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
-          </button>
+        <div class="file-item dir" style="padding-left: ${padding}px" data-path="${esc(targetPath)}" data-isdir="1">
+          <div class="file-item-icon">${icon}</div>
+          <div style="flex:1">${esc(f.name)}</div>
+          <button class="file-view-btn" title="More Actions">${TREE_MENU_SVG}</button>
         </div>
       `;
       if (isExpanded) {
@@ -227,18 +232,36 @@ function renderTreeLevel(dirPath, depth) {
       }
     } else {
       html += `
-        <div class="file-item" style="padding-left: ${padding}px">
-          <div class="file-item-icon" onclick="handleItemClick('${esc(targetPath)}', false, event)">📄</div>
-          <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onclick="handleItemClick('${esc(targetPath)}', false, event)">${esc(f.name)}</div>
-          <button class="file-view-btn" onclick="openDropdown(event, '${esc(targetPath)}', false)" title="More Actions">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
-          </button>
+        <div class="file-item" style="padding-left: ${padding}px" data-path="${esc(targetPath)}" data-isdir="0">
+          <div class="file-item-icon">📄</div>
+          <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(f.name)}</div>
+          <button class="file-view-btn" title="More Actions">${TREE_MENU_SVG}</button>
         </div>
       `;
     }
   }
   return html;
 }
+
+// Delegated click handler for the whole tree. Reads the (safe) data-path off the
+// row rather than trusting any interpolated string.
+function onSidebarClick(e) {
+  const item = e.target.closest('.file-item');
+  if (!item) return;
+  const path = item.dataset.path || '';
+  const isDir = item.dataset.isdir === '1';
+  const menuBtn = e.target.closest('.file-view-btn');
+  if (menuBtn) {
+    openDropdown(e, path, isDir, menuBtn);
+  } else {
+    handleItemClick(path, isDir, e);
+  }
+}
+
+(function bindSidebarList() {
+  const listEl = document.getElementById('sidebar-list');
+  if (listEl) listEl.addEventListener('click', onSidebarClick);
+})();
 
 function insertFilePath(path, event) {
   if (event) event.stopPropagation();
@@ -331,30 +354,50 @@ window.addEventListener('touchstart', (e) => {
   }
 }, { passive: true });
 
-function openDropdown(event, path, isDir) {
+const DD_SVG = {
+  insert: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`,
+  upload: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>`,
+  download: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`,
+  del: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`,
+};
+
+// `path` is passed to the action handlers as a closure variable — it is never
+// serialized into markup — so an untrusted file name cannot inject script.
+function ddItem(iconHTML, label, cls, handler) {
+  const b = document.createElement('button');
+  b.className = 'dropdown-item' + (cls ? ' ' + cls : '');
+  b.innerHTML = iconHTML + ' ';       // static SVG only
+  b.appendChild(document.createTextNode(label));
+  b.addEventListener('click', handler);
+  return b;
+}
+
+function openDropdown(event, path, isDir, anchor) {
   event.stopPropagation();
   event.preventDefault();
   closeDropdown();
 
   const dd = document.getElementById('action-dropdown');
   dd.innerHTML = '';
-  
+
   if (isDir) {
-    dd.innerHTML += `<button class="dropdown-item" onclick="insertFilePath('${esc(path)}/', event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Insert Path</button>`;
-    dd.innerHTML += `<button class="dropdown-item" onclick="uploadToFolder('${esc(path)}', event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg> Upload File</button>`;
-    dd.innerHTML += `<button class="dropdown-item" onclick="downloadFile('${esc(path)}', event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download ZIP</button>`;
+    dd.appendChild(ddItem(DD_SVG.insert, 'Insert Path', '', (e) => insertFilePath(path + '/', e)));
+    dd.appendChild(ddItem(DD_SVG.upload, 'Upload File', '', (e) => uploadToFolder(path, e)));
+    dd.appendChild(ddItem(DD_SVG.download, 'Download ZIP', '', (e) => downloadFile(path, e)));
   } else {
-    dd.innerHTML += `<button class="dropdown-item" onclick="insertFilePath('${esc(path)}', event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Insert Path</button>`;
-    dd.innerHTML += `<button class="dropdown-item" onclick="downloadFile('${esc(path)}', event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download File</button>`;
+    dd.appendChild(ddItem(DD_SVG.insert, 'Insert Path', '', (e) => insertFilePath(path, e)));
+    dd.appendChild(ddItem(DD_SVG.download, 'Download File', '', (e) => downloadFile(path, e)));
   }
-  
-  dd.innerHTML += `<div style="height:1px; background:var(--border); margin:4px 0;"></div>`;
-  dd.innerHTML += `<button class="dropdown-item danger" onclick="deleteFile('${esc(path)}', event)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete</button>`;
+
+  const divider = document.createElement('div');
+  divider.style.cssText = 'height:1px; background:var(--border); margin:4px 0;';
+  dd.appendChild(divider);
+  dd.appendChild(ddItem(DD_SVG.del, 'Delete', 'danger', (e) => deleteFile(path, e)));
 
   dd.style.display = 'flex';
-  
-  // Position it
-  const rect = event.currentTarget.getBoundingClientRect();
+
+  // Position it (anchor to the menu button that opened it)
+  const rect = (anchor || event.currentTarget || event.target).getBoundingClientRect();
   let top = rect.bottom + 4;
   let left = rect.right - 160; // align right roughly
   
@@ -507,13 +550,14 @@ function renderToolUseBlock(block) {
   div.className = 'tool-card';
   div.id = id;
   div.innerHTML = `
-    <div class="tool-card-header" onclick="toggleCard('${id}')">
+    <div class="tool-card-header">
       <span class="tool-card-icon">⚙</span>
       <span class="tool-card-name">${esc(block.name || 'tool')}</span>
       <span class="tool-card-toggle">▾ show</span>
     </div>
     <div class="tool-card-body hidden">${esc(inputJson)}</div>
   `;
+  div.querySelector('.tool-card-header').addEventListener('click', () => toggleCard(id));
   return div;
 }
 
@@ -527,9 +571,10 @@ function renderToolResultBlock(block) {
   div.className = 'result-card';
   div.id = id;
   div.innerHTML = `
-    <div class="result-card-header" onclick="toggleCard('${id}')">▾ tool result</div>
+    <div class="result-card-header">▾ tool result</div>
     <div class="result-card-body hidden">${esc(content)}</div>
   `;
+  div.querySelector('.result-card-header').addEventListener('click', () => toggleCard(id));
   return div;
 }
 
@@ -662,14 +707,17 @@ function renderApprovalCard(ev) {
       <div class="approval-tool-name">${esc(request.tool_name || 'unknown')}</div>
       <div class="approval-input">${esc(inputJson)}</div>
       <div class="approval-actions">
-        <button class="btn btn-allow" id="ap-allow-${esc(request_id)}"
-          onclick="sendApproval('${esc(request_id)}', true)">Allow</button>
-        <button class="btn btn-deny" id="ap-deny-${esc(request_id)}"
-          onclick="sendApproval('${esc(request_id)}', false)">Deny</button>
+        <button class="btn btn-allow" id="ap-allow-${esc(request_id)}" data-act="allow">Allow</button>
+        <button class="btn btn-deny" id="ap-deny-${esc(request_id)}" data-act="deny">Deny</button>
         <span class="approval-outcome" id="ap-outcome-${esc(request_id)}"></span>
       </div>
     </div>
   `;
+
+  // Wire handlers with request_id captured in a closure (never interpolated
+  // into an inline handler).
+  row.querySelector('[data-act="allow"]').addEventListener('click', () => sendApproval(request_id, true));
+  row.querySelector('[data-act="deny"]').addEventListener('click', () => sendApproval(request_id, false));
 
   appendRow(row);
   pendingApprovals[request_id] = row;

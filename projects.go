@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -269,27 +271,38 @@ func (s *ProjectStore) CreateNewRepo(name string) (*Project, error) {
 // CloneRepo clones a git repository into the workspace.
 // Supports HTTPS and SSH URLs.
 func (s *ProjectStore) CloneRepo(gitURL, name string) (*Project, error) {
-	if gitURL == "" {
-		return nil, fmt.Errorf("git URL is required")
+	// Reject URLs that could execute commands (git transport helpers like
+	// "ext::sh -c …") or inject arguments (leading "-"), before git ever sees them.
+	if err := validateGitURL(gitURL); err != nil {
+		return nil, err
 	}
 
 	// Infer name from URL if not provided
 	if name == "" {
 		name = inferRepoName(gitURL)
 	}
+	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("could not infer repo name from URL; please provide a name")
 	}
+	// Keep the clone inside the workspace: no path separators or "..".
+	if strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+		return nil, fmt.Errorf("repository name must not contain path separators or '..'")
+	}
 
 	absPath := filepath.Join(s.workspace, name)
+	if !isUnderDir(absPath, s.workspace) {
+		return nil, fmt.Errorf("resolved path escapes workspace")
+	}
 
 	// Check if already exists
 	if _, err := os.Stat(absPath); err == nil {
 		return nil, fmt.Errorf("directory already exists: %s", absPath)
 	}
 
-	// Git clone
-	cmd := exec.Command("git", "clone", gitURL, absPath)
+	// Git clone. The "--" separator ensures the URL and path are never parsed as
+	// options even if validation is later relaxed.
+	cmd := exec.Command("git", "clone", "--", gitURL, absPath)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("git clone failed: %s", strings.TrimSpace(string(out)))
@@ -382,4 +395,54 @@ func inferRepoName(gitURL string) string {
 		return u[idx+1:]
 	}
 	return u
+}
+
+// scpLikeURL matches git's scp-style syntax: [user@]host:path (no scheme, and
+// the colon must come before any slash). e.g. "git@github.com:user/repo.git".
+var scpLikeURL = regexp.MustCompile(`^[A-Za-z0-9._~-]+(@[A-Za-z0-9._-]+)?:[^/].*$`)
+
+// validateGitURL allows only well-formed remote git URLs and rejects anything
+// that git could interpret as a command or an option.
+//
+// The dangerous cases:
+//   - "ext::sh -c '…'" and other "<helper>::…" transport helpers run arbitrary
+//     commands during clone → remote code execution.
+//   - a leading "-" is parsed by git as an option (argument injection).
+//   - "file://" / local paths would let a caller clone from outside the workspace.
+//
+// Allowed: http(s)://, ssh://, git:// schemes, and scp-like user@host:path.
+func validateGitURL(gitURL string) error {
+	gitURL = strings.TrimSpace(gitURL)
+	if gitURL == "" {
+		return fmt.Errorf("git URL is required")
+	}
+	if strings.HasPrefix(gitURL, "-") {
+		return fmt.Errorf("invalid git URL")
+	}
+	// Block transport helpers (ext::, fd::, …) — the RCE vector.
+	if strings.Contains(gitURL, "::") {
+		return fmt.Errorf("unsupported git URL transport")
+	}
+
+	if strings.Contains(gitURL, "://") {
+		u, err := url.Parse(gitURL)
+		if err != nil {
+			return fmt.Errorf("invalid git URL: %w", err)
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "http", "https", "ssh", "git":
+			if u.Host == "" {
+				return fmt.Errorf("git URL is missing a host")
+			}
+			return nil
+		default:
+			return fmt.Errorf("unsupported git URL scheme %q (allowed: https, ssh, git)", u.Scheme)
+		}
+	}
+
+	// No scheme: only accept scp-like user@host:path.
+	if scpLikeURL.MatchString(gitURL) {
+		return nil
+	}
+	return fmt.Errorf("unsupported git URL (use https://, ssh://, git://, or user@host:path)")
 }
