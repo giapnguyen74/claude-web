@@ -214,7 +214,7 @@ func (s *Server) run() error {
 	mux.Handle("/api/", s.requireOrigin(s.authMiddleware(apiMux)))
 
 	addr := fmt.Sprintf("%s:%d", s.cfg.host, s.cfg.port)
-	s.srv = &http.Server{Addr: addr, Handler: mux}
+	s.srv = &http.Server{Addr: addr, Handler: s.requireLocalHost(mux)}
 
 	fmt.Fprintf(os.Stderr, "  [server] HTTP Server starting to listen on %s...\n", addr)
 	err := s.srv.ListenAndServe()
@@ -563,6 +563,46 @@ func (s *Server) handleWorkspaceFolders(w http.ResponseWriter, r *http.Request) 
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────
+
+// isLoopbackHostPort reports whether a "host" or "host:port" value refers to the
+// local machine (localhost / 127.0.0.0-8 / ::1). Empty is treated as loopback
+// (non-browser clients that omit Host).
+func isLoopbackHostPort(hostport string) bool {
+	if hostport == "" {
+		return true
+	}
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	return isLoopbackHost(host)
+}
+
+// requireLocalHost defends the default passwordless mode against DNS rebinding by
+// rejecting any request whose Host header isn't loopback.
+//
+// A rebinding attack works by pointing the attacker's own domain (e.g.
+// evil.com) at 127.0.0.1, so the victim's browser sends requests to the local
+// server that are "same-origin" with the attacker's page — bypassing the Origin
+// check on GET reads. But those requests still carry Host: evil.com, so an
+// allowlist of loopback Hosts refuses them.
+//
+// This is scoped to passwordless mode only: main.go already requires a password
+// to bind any non-loopback address, so a passwordless server is always
+// loopback-only and legitimate requests always have a localhost Host. When a
+// password IS set, auth (a host-locked cookie the browser never sends to the
+// attacker's domain) already defeats rebinding, and remote access via
+// --host/--origins legitimately uses non-loopback Hosts, so the check is skipped.
+func (s *Server) requireLocalHost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.cfg.passwordHash == "" && !isLoopbackHostPort(r.Host) {
+			fmt.Printf("[host] non-loopback Host rejected: %q (possible DNS rebinding)\n", r.Host)
+			http.Error(w, "forbidden: non-loopback Host header", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // requireOrigin blocks cross-origin state-changing requests (CSRF defense).
 //

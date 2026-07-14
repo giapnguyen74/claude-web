@@ -45,6 +45,33 @@ func TestOriginValidation(t *testing.T) {
 	}
 }
 
+func TestIsLoopbackHostPort(t *testing.T) {
+	tests := []struct {
+		host     string
+		expected bool
+	}{
+		// Loopback — allowed in passwordless mode.
+		{"", true}, // non-browser clients that omit Host
+		{"localhost", true},
+		{"localhost:4000", true},
+		{"127.0.0.1", true},
+		{"127.0.0.1:4000", true},
+		{"127.0.0.2:8080", true}, // all of 127.0.0.0/8 is loopback
+		{"[::1]:4000", true},
+		{"::1", true},
+		// Non-loopback — a rebinding attacker's Host, rejected.
+		{"evil.com:4000", false},
+		{"localhost.evil.com:4000", false},
+		{"192.168.1.100:4000", false},
+		{"10.0.0.5", false},
+	}
+	for _, tc := range tests {
+		if got := isLoopbackHostPort(tc.host); got != tc.expected {
+			t.Errorf("isLoopbackHostPort(%q) = %v; want %v", tc.host, got, tc.expected)
+		}
+	}
+}
+
 func TestTranslateSubmitToClaudeStreamJSON(t *testing.T) {
 	submitInput := map[string]any{
 		"type": "submit",
