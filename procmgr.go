@@ -325,10 +325,9 @@ func (pm *ProcManager) handleInputJob(ap *ActiveProject, job inputJob) {
 			}
 		} else {
 			// Record the user's prompt in the event timeline so the UI shows it
-			// (Claude's output stream does not echo the prompt back). This covers
-			// both plain submits and answers to an AskUserQuestion tool, but not
-			// tool-approval confirmations.
-			if t, _ := m["type"].(string); t == "submit" || t == "tool_result" {
+			// (Claude's output stream does not echo the prompt back). Only for
+			// actual submits — not tool-approval confirmations.
+			if m["type"] == "submit" {
 				if text, ok := m["text"].(string); ok && text != "" {
 					_ = appendUserEvent(ap.EventsPath, text)
 				}
@@ -384,36 +383,6 @@ func toClaudeInput(qwenStyle map[string]any) ([]byte, error) {
 			},
 		}
 		return json.Marshal(cs)
-
-	case "tool_result":
-		// Answer to a tool call (e.g. AskUserQuestion). Claude is blocked waiting
-		// for a tool_result that references the pending tool_use id, so a plain
-		// user turn would not answer it — this delivers the reply correctly.
-		toolUseID, _ := qwenStyle["tool_use_id"].(string)
-		text, _ := qwenStyle["text"].(string)
-		if toolUseID == "" {
-			return nil, fmt.Errorf("missing tool_use_id in tool_result")
-		}
-		type resultBlock struct {
-			Type      string `json:"type"`
-			ToolUseID string `json:"tool_use_id"`
-			Content   string `json:"content"`
-		}
-		type messageBody struct {
-			Role    string        `json:"role"`
-			Content []resultBlock `json:"content"`
-		}
-		type claudeToolResult struct {
-			Type    string      `json:"type"`
-			Message messageBody `json:"message"`
-		}
-		return json.Marshal(claudeToolResult{
-			Type: "user",
-			Message: messageBody{
-				Role:    "user",
-				Content: []resultBlock{{Type: "tool_result", ToolUseID: toolUseID, Content: text}},
-			},
-		})
 
 	case "confirmation_response":
 		reqID, _ := qwenStyle["request_id"].(string)

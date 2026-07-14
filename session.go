@@ -378,6 +378,15 @@ func spawnClaude(opts spawnOptions) (*claudeProc, error) {
 	if !hasFlag(opts.extraArgs, "--permission-mode") {
 		args = append(args, "--permission-mode", "acceptEdits")
 	}
+	// AskUserQuestion is an interactive tool that always falls through to a
+	// canUseTool callback. In headless stream-json mode there is no such callback,
+	// so Claude Code auto-resolves the question with "no response" and proceeds
+	// before the user can answer. Remove the tool so Claude asks clarifying
+	// questions as plain text instead — which the web UI answers as a normal turn.
+	// Users can override by passing their own --disallowedTools.
+	if !hasFlag(opts.extraArgs, "--disallowedTools") {
+		args = append(args, "--disallowedTools", "AskUserQuestion")
+	}
 	args = append(args, opts.extraArgs...)
 
 	var cmd *exec.Cmd
