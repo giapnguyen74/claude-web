@@ -46,6 +46,37 @@ func readJSONLines(path string) []json.RawMessage {
 	return out
 }
 
+// readContentEvents reads a JSONL event file for a *historical replay*, keeping
+// only events worth rendering after the fact. It drops streaming token deltas
+// (`stream_event`), which are redundant with the final `assistant` message and
+// otherwise dominate a long conversation — a single answer can be hundreds of
+// delta lines. This keeps the replay tail (and each scroll-back page) small and
+// fast. Live streaming is unaffected: it flows through the tailer/hub, not here.
+func readContentEvents(path string) []json.RawMessage {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out []json.RawMessage
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var head struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(line), &head); err != nil {
+			continue // invalid JSON — skip, matching readJSONLines
+		}
+		if head.Type == "stream_event" {
+			continue
+		}
+		out = append(out, json.RawMessage(line))
+	}
+	return out
+}
+
 // ReadAll reads every event from the beginning of the file.
 // It is independent of the live-tail offset and safe to call concurrently.
 func (t *Tailer) ReadAll() []json.RawMessage {

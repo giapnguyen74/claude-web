@@ -236,7 +236,11 @@ func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request, proj Proj
 	if staged {
 		out, _, _ = runGit(ctx, proj.Path, "diff", "--staged", "--", rel)
 	} else {
-		out, _, _ = runGit(ctx, proj.Path, "diff", "--", rel)
+		// Working tree vs HEAD shows all uncommitted changes (staged + unstaged).
+		out, _, _ = runGit(ctx, proj.Path, "diff", "HEAD", "--", rel)
+		if strings.TrimSpace(out) == "" {
+			out, _, _ = runGit(ctx, proj.Path, "diff", "--", rel) // unborn HEAD fallback
+		}
 		// An untracked file has no tracked diff; show it as an addition.
 		if strings.TrimSpace(out) == "" && rel != "" {
 			if o2, _, _ := runGit(ctx, proj.Path, "diff", "--no-index", "--", os.DevNull, rel); strings.TrimSpace(o2) != "" {
@@ -261,18 +265,12 @@ func (s *Server) handleGitDiff(w http.ResponseWriter, r *http.Request, proj Proj
 	})
 }
 
-// gitPathBody validates a POST body of {paths:[…]} against the repo and returns
-// repo-relative paths, or writes an error and returns ok=false.
-func (s *Server) gitPathBody(w http.ResponseWriter, r *http.Request, proj Project) ([]string, bool) {
-	var body struct {
-		Paths []string `json:"paths"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Paths) == 0 {
-		writeError(w, http.StatusBadRequest, "paths is required")
-		return nil, false
-	}
-	rels := make([]string, 0, len(body.Paths))
-	for _, p := range body.Paths {
+// validateRepoPaths cleans a set of user-supplied paths and confirms each is
+// inside the repo, returning repo-relative paths. On any invalid path it writes
+// an error response and returns ok=false.
+func (s *Server) validateRepoPaths(w http.ResponseWriter, proj Project, paths []string) ([]string, bool) {
+	rels := make([]string, 0, len(paths))
+	for _, p := range paths {
 		cp := filepath.Clean("/" + p)
 		if !isSafePath(filepath.Join(proj.Path, cp), proj.Path) {
 			writeError(w, http.StatusForbidden, "invalid file path")
@@ -283,52 +281,35 @@ func (s *Server) gitPathBody(w http.ResponseWriter, r *http.Request, proj Projec
 	return rels, true
 }
 
-func (s *Server) handleGitStage(w http.ResponseWriter, r *http.Request, proj Project, unstage bool) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	rels, ok := s.gitPathBody(w, r, proj)
-	if !ok {
-		return
-	}
-
-	lock := gitLock(proj.ID)
-	lock.Lock()
-	defer lock.Unlock()
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	var args []string
-	if unstage {
-		args = append([]string{"reset", "-q", "HEAD", "--"}, rels...)
-	} else {
-		args = append([]string{"add", "--"}, rels...)
-	}
-	out, errOut, err := runGit(ctx, proj.Path, args...)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, gitErrMsg(out, errOut, err))
-		return
-	}
-	writeJSON(w, map[string]any{"ok": true})
-}
-
+// handleGitCommit commits exactly the files the user selected. Staging is
+// presentational in the UI (nothing is added until now), so the request carries
+// the chosen paths: we stage them (picking up modifications, untracked
+// additions, and deletions) and then commit only those pathspecs, leaving any
+// unrelated index state untouched.
 func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request, proj Project) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	var body struct {
-		Message string `json:"message"`
+		Message string   `json:"message"`
+		Paths   []string `json:"paths"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Message) == "" {
 		writeError(w, http.StatusBadRequest, "commit message is required")
 		return
 	}
 	msg := strings.TrimSpace(body.Message)
+	rels, ok := s.validateRepoPaths(w, proj, body.Paths)
+	if !ok {
+		return
+	}
+	if len(rels) == 0 {
+		writeError(w, http.StatusBadRequest, "select at least one file to commit")
+		return
+	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 
 	name, _, _ := runGit(ctx, proj.Path, "config", "user.name")
@@ -343,9 +324,12 @@ func (s *Server) handleGitCommit(w http.ResponseWriter, r *http.Request, proj Pr
 	lock.Lock()
 	defer lock.Unlock()
 
-	out, errOut, err := runGit(ctx, proj.Path, "commit", "-m", msg)
+	if out, errOut, err := runGit(ctx, proj.Path, append([]string{"add", "--"}, rels...)...); err != nil {
+		writeError(w, http.StatusBadRequest, gitErrMsg(out, errOut, err))
+		return
+	}
+	out, errOut, err := runGit(ctx, proj.Path, append([]string{"commit", "-m", msg, "--"}, rels...)...)
 	if err != nil {
-		// e.g. "nothing to commit" — surface git's own message.
 		writeError(w, http.StatusBadRequest, gitErrMsg(out, errOut, err))
 		return
 	}

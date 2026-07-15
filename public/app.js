@@ -1502,6 +1502,7 @@ function closeFileViewer() {
 // DOM is built with createElement + textContent (untrusted file names/diffs are
 // never interpolated into markup), consistent with the rest of the app.
 let gitStatusCache = null;
+let gitExcluded = new Set(); // paths the user unchecked (excluded from the next commit)
 const gitBtn = document.getElementById('git-btn');
 const gitPanel = document.getElementById('git-panel');
 
@@ -1542,6 +1543,7 @@ async function gitRefresh() {
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.statusText); }
     const data = await res.json();
     gitStatusCache = data;
+    gitExcluded = new Set(); // fresh status → everything checked by default
     renderGitPanel(data);
   } catch (err) {
     body.textContent = '';
@@ -1567,47 +1569,29 @@ function gitStatusClass(code) {
   return 'git-status-modified';
 }
 
-function gitRenderSection(container, title, entries, actionType, staged) {
-  if (!entries || entries.length === 0) return;
-  const sec = document.createElement('div');
-  sec.className = 'git-section';
-  const h = document.createElement('div');
-  h.className = 'git-section-title';
-  h.textContent = `${title} (${entries.length})`;
-  sec.appendChild(h);
+// gitMergedChanges collapses staged/unstaged/untracked into one de-duplicated
+// list of changed files (the "what changed" view — staging is presentational
+// until commit, GitHub-Desktop style).
+function gitMergedChanges(data) {
+  const map = new Map();
+  const add = (arr) => (arr || []).forEach(f => { if (!map.has(f.path)) map.set(f.path, { path: f.path, code: f.code }); });
+  add(data.staged);
+  add(data.unstaged);
+  add(data.untracked);
+  return Array.from(map.values());
+}
 
-  entries.forEach(f => {
-    const row = document.createElement('div');
-    row.className = 'git-file-row';
+function gitCheckedPaths() {
+  if (!gitStatusCache) return [];
+  return gitMergedChanges(gitStatusCache).filter(f => !gitExcluded.has(f.path)).map(f => f.path);
+}
 
-    const st = document.createElement('span');
-    st.className = 'git-file-status ' + gitStatusClass(f.code);
-    st.textContent = gitStatusLabel(f.code);
-    st.title = f.code;
-
-    const name = document.createElement('span');
-    name.className = 'git-file-path';
-    name.textContent = f.path;
-
-    row.appendChild(st);
-    row.appendChild(name);
-    row.addEventListener('click', () => gitShowDiff(f.path, !!staged));
-
-    if (actionType) {
-      const act = document.createElement('button');
-      act.className = 'git-file-action';
-      act.textContent = actionType === 'stage' ? '+' : '−';
-      act.title = actionType === 'stage' ? 'Stage' : 'Unstage';
-      act.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (actionType === 'stage') gitStage([f.path]);
-        else gitUnstage([f.path]);
-      });
-      row.appendChild(act);
-    }
-    sec.appendChild(row);
-  });
-  container.appendChild(sec);
+function gitUpdateCommitBtn() {
+  const btn = document.getElementById('git-commit-btn');
+  if (!btn) return;
+  const n = gitCheckedPaths().length;
+  btn.disabled = n === 0;
+  btn.textContent = n === 0 ? 'Commit' : `Commit ${n} file${n === 1 ? '' : 's'}`;
 }
 
 function renderGitPanel(data) {
@@ -1649,27 +1633,98 @@ function renderGitPanel(data) {
     return;
   }
 
-  gitRenderSection(body, 'Conflicts', data.conflicts, null, false);
-  gitRenderSection(body, 'Staged', data.staged, 'unstage', true);
-  gitRenderSection(body, 'Changes', data.unstaged, 'stage', false);
-  gitRenderSection(body, 'Untracked', data.untracked, 'stage', false);
+  // Conflicts are read-only here — resolve them in a terminal before committing.
+  if (data.conflicts && data.conflicts.length) {
+    const sec = document.createElement('div');
+    sec.className = 'git-section';
+    const h = document.createElement('div');
+    h.className = 'git-section-title';
+    h.textContent = `Conflicts (${data.conflicts.length}) — resolve before committing`;
+    sec.appendChild(h);
+    data.conflicts.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'git-file-row';
+      const st = document.createElement('span');
+      st.className = 'git-file-status git-status-deleted';
+      st.textContent = '!';
+      st.title = f.code;
+      const name = document.createElement('span');
+      name.className = 'git-file-path';
+      name.textContent = f.path;
+      row.appendChild(st);
+      row.appendChild(name);
+      row.addEventListener('click', () => gitShowDiff(f.path));
+      sec.appendChild(row);
+    });
+    body.appendChild(sec);
+  }
+
+  const changes = gitMergedChanges(data);
+  if (changes.length) {
+    // "Select all / none" header — everything is checked by default.
+    const secHead = document.createElement('label');
+    secHead.className = 'git-section-title git-select-all';
+    const allBox = document.createElement('input');
+    allBox.type = 'checkbox';
+    allBox.checked = changes.every(f => !gitExcluded.has(f.path));
+    allBox.addEventListener('change', () => {
+      if (allBox.checked) gitExcluded.clear();
+      else changes.forEach(f => gitExcluded.add(f.path));
+      renderGitPanel(gitStatusCache);
+    });
+    const lbl = document.createElement('span');
+    lbl.textContent = `Changes (${changes.length})`;
+    secHead.appendChild(allBox);
+    secHead.appendChild(lbl);
+    body.appendChild(secHead);
+
+    changes.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'git-file-row';
+
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.className = 'git-file-check';
+      box.checked = !gitExcluded.has(f.path);
+      box.addEventListener('click', (e) => e.stopPropagation());
+      box.addEventListener('change', () => {
+        if (box.checked) gitExcluded.delete(f.path);
+        else gitExcluded.add(f.path);
+        gitUpdateCommitBtn();
+        allBox.checked = changes.every(x => !gitExcluded.has(x.path));
+      });
+
+      const st = document.createElement('span');
+      st.className = 'git-file-status ' + gitStatusClass(f.code);
+      st.textContent = gitStatusLabel(f.code);
+      st.title = f.code;
+
+      const name = document.createElement('span');
+      name.className = 'git-file-path';
+      name.textContent = f.path;
+
+      row.appendChild(box);
+      row.appendChild(st);
+      row.appendChild(name);
+      row.addEventListener('click', () => gitShowDiff(f.path));
+      body.appendChild(row);
+    });
+  }
 
   const commitWrap = document.createElement('div');
   commitWrap.className = 'git-commit-box';
   const ta = document.createElement('textarea');
   ta.id = 'git-commit-msg';
   ta.rows = 2;
-  ta.placeholder = (data.staged && data.staged.length)
-    ? 'Commit message…'
-    : 'Stage changes first, then write a commit message…';
+  ta.placeholder = 'Commit message…';
   const commitBtn = document.createElement('button');
+  commitBtn.id = 'git-commit-btn';
   commitBtn.className = 'btn btn-allow git-commit-btn';
-  commitBtn.textContent = 'Commit staged';
-  commitBtn.disabled = !(data.staged && data.staged.length);
   commitBtn.addEventListener('click', gitCommit);
   commitWrap.appendChild(ta);
   commitWrap.appendChild(commitBtn);
   body.appendChild(commitWrap);
+  gitUpdateCommitBtn();
 }
 
 function diffLineClass(line) {
@@ -1682,7 +1737,7 @@ function diffLineClass(line) {
   return '';
 }
 
-async function gitShowDiff(path, staged) {
+async function gitShowDiff(path) {
   const body = document.getElementById('git-body');
   body.textContent = '';
 
@@ -1694,7 +1749,7 @@ async function gitShowDiff(path, staged) {
 
   const title = document.createElement('div');
   title.className = 'git-diff-title';
-  title.textContent = path + (staged ? '  (staged)' : '');
+  title.textContent = path;
   body.appendChild(title);
 
   const view = document.createElement('div');
@@ -1703,7 +1758,7 @@ async function gitShowDiff(path, staged) {
   body.appendChild(view);
 
   try {
-    const res = await fetch(`${API_BASE}/git/diff?path=${encodeURIComponent(path)}&staged=${staged ? '1' : '0'}`);
+    const res = await fetch(`${API_BASE}/git/diff?path=${encodeURIComponent(path)}`);
     if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.statusText); }
     const data = await res.json();
     view.textContent = '';
@@ -1743,15 +1798,14 @@ async function gitPost(action, bodyObj) {
   }
 }
 
-async function gitStage(paths) { if (await gitPost('stage', { paths })) gitRefresh(); }
-async function gitUnstage(paths) { if (await gitPost('unstage', { paths })) gitRefresh(); }
-
 async function gitCommit() {
   const ta = document.getElementById('git-commit-msg');
   const msg = ((ta && ta.value) || '').trim();
   if (!msg) { showToast('Enter a commit message.', 'error'); return; }
-  const data = await gitPost('commit', { message: msg });
-  if (data) { showToast('Committed.'); gitRefresh(); }
+  const paths = gitCheckedPaths();
+  if (paths.length === 0) { showToast('Select at least one file to commit.', 'error'); return; }
+  const data = await gitPost('commit', { message: msg, paths });
+  if (data) { showToast(`Committed ${paths.length} file${paths.length === 1 ? '' : 's'}.`); gitRefresh(); }
 }
 
 async function gitAction(action) {

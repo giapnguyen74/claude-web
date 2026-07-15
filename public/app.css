@@ -813,6 +813,14 @@
       border-bottom: 1px solid var(--border);
     }
     .git-file-row:hover { background: var(--surface2); }
+    .git-select-all {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .git-file-check { flex: none; width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+    .git-select-all input { accent-color: var(--accent); cursor: pointer; }
     .git-file-status {
       font-family: var(--font-mono);
       font-size: 12px;

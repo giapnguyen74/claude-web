@@ -2,8 +2,36 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+func TestTailStart(t *testing.T) {
+	mk := func(sizes ...int) []json.RawMessage {
+		out := make([]json.RawMessage, len(sizes))
+		for i, s := range sizes {
+			out[i] = json.RawMessage(strings.Repeat("x", s))
+		}
+		return out
+	}
+	cases := []struct {
+		name           string
+		events         []json.RawMessage
+		maxBytes, maxN int
+		want           int
+	}{
+		{"empty", mk(), 100, 10, 0},
+		{"count cap", mk(10, 10, 10, 10, 10), 1 << 20, 3, 2},
+		{"byte cap", mk(100, 100, 100, 100, 100), 250, 1000, 2},
+		{"oversized last always shown", mk(5, 5, 999), 100, 1000, 2},
+		{"everything fits", mk(10, 10, 10), 1 << 20, 1000, 0},
+	}
+	for _, c := range cases {
+		if got := tailStart(c.events, c.maxBytes, c.maxN); got != c.want {
+			t.Errorf("%s: tailStart = %d; want %d", c.name, got, c.want)
+		}
+	}
+}
 
 func TestOriginValidation(t *testing.T) {
 	tests := []struct {

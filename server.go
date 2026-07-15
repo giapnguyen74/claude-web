@@ -899,10 +899,6 @@ func (s *Server) handleProjectAPI(w http.ResponseWriter, r *http.Request) {
 		s.handleGitStatus(w, r, *proj)
 	case "git/diff":
 		s.handleGitDiff(w, r, *proj)
-	case "git/stage":
-		s.handleGitStage(w, r, *proj, false)
-	case "git/unstage":
-		s.handleGitStage(w, r, *proj, true)
 	case "git/commit":
 		s.handleGitCommit(w, r, *proj)
 	case "git/pull":
@@ -1128,9 +1124,33 @@ func (s *Server) handleProjectApprove(w http.ResponseWriter, r *http.Request, pr
 	writeJSON(w, map[string]any{"ok": true})
 }
 
-// replayLimit bounds how many of the most recent events are sent on WS connect
-// (and per history page). Older events load lazily as the user scrolls up.
-const replayLimit = 300
+// replayLimit and replayBytesBudget bound the initial replay tail sent on WS
+// connect (and each scroll-back page): at most replayLimit events AND at most
+// ~replayBytesBudget of content, whichever is smaller. Older events load lazily
+// as the user scrolls up. Bounding by bytes (not just count) keeps a "piled up"
+// conversation with large events from rendering everything at once.
+const (
+	replayLimit       = 300
+	replayBytesBudget = 128 * 1024
+)
+
+// tailStart returns the start index of the longest suffix of events that stays
+// within maxBytes and maxCount, always including at least the final event (so a
+// single oversized event still shows). Events are the combined timeline.
+func tailStart(events []json.RawMessage, maxBytes, maxCount int) int {
+	start := len(events)
+	total := 0
+	count := 0
+	for i := len(events) - 1; i >= 0; i-- {
+		total += len(events[i])
+		count++
+		start = i
+		if count >= maxCount || total >= maxBytes {
+			break
+		}
+	}
+	return start
+}
 
 // handleProjectEventsHistory returns an older page of events for scroll-back.
 // Query: before=<index> (exclusive upper bound; default = end), limit=<n>.
@@ -1151,7 +1171,8 @@ func (s *Server) handleProjectEventsHistory(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	// Combined timeline: archived prior sessions, then the current session.
-	all := append(readJSONLines(histPath), readJSONLines(evPath)...)
+	// Streaming deltas are dropped — history shows finished messages only.
+	all := append(readContentEvents(histPath), readContentEvents(evPath)...)
 	total := len(all)
 
 	limit := replayLimit
@@ -1170,10 +1191,8 @@ func (s *Server) handleProjectEventsHistory(w http.ResponseWriter, r *http.Reque
 			end = n
 		}
 	}
-	start := end - limit
-	if start < 0 {
-		start = 0
-	}
+	// Page is bounded by both count and bytes so a chunk of large events stays light.
+	start := tailStart(all[:end], replayBytesBudget, limit)
 
 	writeJSON(w, map[string]any{
 		"events":     all[start:end],
@@ -1233,13 +1252,10 @@ func (s *Server) handleProjectWS(w http.ResponseWriter, r *http.Request, project
 	//    flows seamlessly into history via GET .../events/history.
 	evPath, _ := eventsPathForProject(proj.Path)
 	histPath, _ := historyPathForProject(proj.Path)
-	cur := readJSONLines(evPath)
-	archivedCount := len(readJSONLines(histPath))
-	total := len(cur)
-	start := total - replayLimit
-	if start < 0 {
-		start = 0
-	}
+	// Content-only (no streaming deltas) so a long session replays a small tail.
+	cur := readContentEvents(evPath)
+	archivedCount := len(readContentEvents(histPath))
+	start := tailStart(cur, replayBytesBudget, replayLimit)
 	firstIndex := archivedCount + start
 	if !write(mustMarshal(map[string]any{
 		"type":       "replay_start",
